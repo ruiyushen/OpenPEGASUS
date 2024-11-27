@@ -50,6 +50,15 @@ static void addCtxInplace(Ctx &accum, const Ctx &operand, const RtPtr runtime) {
   }
 }
 
+void LWEGateBooter::Binary(RLWE2LWECt_t lwe_N_ct, const lwe::Ctx_t lwe_n_ct, double threshold) const {
+    const size_t degree = rlwe_rt->last_context_data()->parms().poly_modulus_degree();
+    std::vector<uint64_t> lut;
+    InitLUT(lut, degree, [threshold](double e) {
+        return (e > threshold) ? 1.0 : 0.0;
+    });
+    Apply(lwe_N_ct, lwe_n_ct, lut);
+}
+
 void LWEGateBooter::SetPostMultiplier(const double multiplier) {
   if (multiplier != post_multiplier) {
     const size_t degree =

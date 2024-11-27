@@ -16,6 +16,8 @@ class LWEGateBooter {
 
   void IsZeroThenTag(RLWE2LWECt_t lwe_N, const lwe::Ctx_t lwe_n, double tag) const;
 
+  void Binary(RLWE2LWECt_t lwe_N, const lwe::Ctx_t lwe_n, double threshold = 0.0) const;
+
   // f(x) = sqrt(|x|)
   void AbsSqrt(RLWE2LWECt_t lwe_N, const lwe::Ctx_t lwe_n) const;
 

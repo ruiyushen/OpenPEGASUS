@@ -80,6 +80,8 @@ class PegasusRunTime {
 
   Status Sub(Ctx &a, Ctx const &b) const;
 
+  Status Mul(Ctx &a, const Ctx &b) const;
+
   Status Square(Ctx &a) const;
 
   Status RelinThenRescale(Ctx &a) const;
@@ -96,6 +98,9 @@ class PegasusRunTime {
                 lwe::Ctx_st const &b) const;
 
   void MulConstant(lwe::Ctx_t lvl0_ct, double v) const;
+  
+  void Binary(lwe::Ctx_t lvl0_ct, double threshold = 0.0) const;
+  void Binary(lwe::Ctx_st *lvl0_ct, size_t num_wires, double threshold = 0.0) const;
 
 #define DEFINE_LUT(FNAME)                                              \
   inline void FNAME(lwe::Ctx_t lvl0_ct) const {                        \

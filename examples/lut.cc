@@ -15,7 +15,7 @@ int main() {
 
   PegasusRunTime pg_rt(pp, /*num_threads*/ 4);
 
-  for (int f = 0; f < 7; ++f) {
+  for (int f = 0; f < 8; ++f) {
     F64Vec slots(pp.nslots);
 
     {
@@ -81,6 +81,11 @@ int main() {
         pg_rt.Sigmoid(lwe_ct.data(), lwe_ct.size());
         tag = "Sigmoid";
         target_func = [](double e) { return 1. / (1. + std::exp(-e)); };
+      } break;
+      case 7: {
+        pg_rt.Binary(lwe_ct.data(), lwe_ct.size(), threshold);
+        tag = "Binary";
+        target_func = [threshold](double e) { return e > threshold ? 1.0 : 0.0; };
       } break;
     }
     timer.stop();

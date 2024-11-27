@@ -81,6 +81,15 @@ Status PegasusRunTime::Sub(Ctx &a, Ctx const &b) const {
   return Status::Ok();
 }
 
+Status PegasusRunTime::Mul(Ctx &a, const Ctx &b) const {
+  if (a.parms_id() != b.parms_id()) {
+      return Status::ArgumentError("Mul: mismatched parameters in ciphertexts");
+  }
+  CHECK_STATUS(runtime_->Mul(&a, b));
+  return Status::Ok();
+}
+
+
 Status PegasusRunTime::Square(Ctx &a) const {
   CHECK_STATUS(runtime_->Mul(&a, a));
   return Status::Ok();
@@ -223,6 +232,32 @@ void PegasusRunTime::setUpRuntime() {
   parms.set_poly_modulus_degree(parms_.lvl0_lattice_dim);
   parms.set_coeff_modulus(lvl0_modulus);
   lvl0_runtime_ = SEALContext::Create(parms, true, sec_level_type::none);
+}
+
+void PegasusRunTime::Binary(lwe::Ctx_t lvl0_ct, double threshold) const {
+    F64 out_scale = lvl0_ct->scale * lutFunctor_->GetPostMultiplier();
+    rlwe::RLWE2LWECt_t lvl1_ct;
+    lutFunctor_->Binary(lvl1_ct, lvl0_ct, threshold);
+    rlwe::LWEKeySwitch(lvl0_ct, lvl1_ct, lvl1Tolvl0_, lvl0_runtime_);
+    lvl0_ct->scale = out_scale;
+}
+
+void PegasusRunTime::Binary(lwe::Ctx_st *lvl0_ct, size_t num_wires, double threshold) const {
+    ThreadPool pool(num_threads_);
+    const size_t work_load = (num_wires + num_threads_ - 1) / num_threads_;
+    for (int w = 0; w < num_threads_; ++w) {
+        size_t start = w * work_load;
+        size_t end = std::min<size_t>(start + work_load, num_wires);
+        if (end > start) {
+            pool.enqueue(
+                [&](size_t s, size_t e) {
+                    for (size_t i = s; i < e; ++i) {
+                        Binary(lvl0_ct + i, threshold);
+                    }
+                },
+                start, end);
+        }
+    }
 }
 
 void PegasusRunTime::setUpSecretKeys() {
