@@ -22,10 +22,10 @@ Note that this repo should only be used for research and its code are still unde
 - GMP
 
 ### Out-of-source Build
-1. `mkdir -p build-release & cd build-release`
+1. `mkdir -p build & cd build`
 2. `cmake .. -DSEAL_USE_ZLIB=OFF -DSEAL_USE_MSGSL=OFF -DCMAKE_BUILD_TYPE=Release`
 3. `make -j4`
-4. check the executables in `build-release/bin/`
+4. check the executables in `build/bin/`
 
 ### Examples
 ****

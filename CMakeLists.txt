@@ -71,3 +71,4 @@ endif(GMP_FOUND)
 target_link_libraries(pegasus seal)
 
 add_subdirectory(examples)
+add_subdirectory(fhetranexamples)
