@@ -83,6 +83,7 @@ int main() {
         target_func = [](double e) { return 1. / (1. + std::exp(-e)); };
       } break;
       case 7: {
+        double threshold = 0.5;
         pg_rt.Binary(lwe_ct.data(), lwe_ct.size(), threshold);
         tag = "Binary";
         target_func = [threshold](double e) { return e > threshold ? 1.0 : 0.0; };
