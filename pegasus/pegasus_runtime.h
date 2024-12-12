@@ -6,6 +6,17 @@
 #include "pegasus/repack.h"
 #include "pegasus/rlwe.h"
 #include "pegasus/runtime.h"
+#include <fstream>
+#include <iostream>
+#include <seal/util/clipnormal.h>
+#include <seal/util/uintarithsmallmod.h>
+#include <gmp.h>
+#include <seal/context.h>
+#include <seal/randomgen.h>
+#include <seal/randomtostd.h>
+#include <seal/secretkey.h>
+#include <seal/seal.h>
+#include <seal/util/polyarithsmallmod.h>
 
 namespace gemini {
 
@@ -36,6 +47,14 @@ class PegasusRunTime {
   constexpr int numBitsP0() const { return 45; }
 
   explicit PegasusRunTime(Parms parms, size_t num_threads);
+
+  PegasusRunTime(Parms parms, size_t num_threads, const std::string &runtime_file);
+
+  Status Save(std::ostream &os) const;
+  Status SaveToFile(const std::string &filename) const;
+
+  Status Load(std::istream &is, std::string const& json);
+  Status LoadFromFile(const std::string &filename, std::string const& json);
 
   double MsgRange() const { return (1L << numBitsP0()) * 0.25 / parms_.scale; }
 
@@ -87,6 +106,8 @@ class PegasusRunTime {
   Status RelinThenRescale(Ctx &a) const;
 
   Status ExtraAllCoefficients(const Ctx &in, std::vector<lwe::Ctx_st> &lwe_ct);
+
+  void load_cipher(Ctx &ct, std::ifstream &is) const;
 
   void MulScalarLWECt(lwe::Ctx_st &out, const lwe::Ctx_st &a,
                       uint64_t scalar) const;
@@ -177,9 +198,15 @@ class PegasusRunTime {
 
   void setUpFunctors();
 
+
  private:
+
+  bool SaveSealContexts(std::ostream &os) const;
+  bool LoadSealContexts(std::istream &is, std::string const& json);
+
+
   struct Parms parms_;
-  const size_t num_threads_;
+  size_t num_threads_;
   std::shared_ptr<gemini::RunTime> runtime_{nullptr};
   std::shared_ptr<gemini::BetterSine> sinFunctor_{nullptr};
   std::shared_ptr<gemini::LinearTransformer> linearTransformer_{nullptr};

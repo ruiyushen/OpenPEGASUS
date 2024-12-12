@@ -79,6 +79,11 @@ class RunTime {
   Status Decode(Ptx const& pt, size_t nslots, C64Vec* out) const;
   Status Decode(Ptx const& pt, size_t nslots, F64Vec* out) const;
 
+  bool Save(std::ostream &os) const;
+  bool Load(std::istream &is, std::string const& json);
+
+  // static std::shared_ptr<RunTime> LoadFromFile(const std::string &filename);
+
   /// Sum two ciphertexts inplace.
   Status Add(Ctx* lhs, Ctx const& rhs) const;
   /// Sum a ciphertext and plaintext inplace.
@@ -177,7 +182,7 @@ class RunTime {
   /// Convert the coeffients of plaintext to real number presentation.
   Status ConventionalForm(Ptx const& pt, F64Vec* coeff, bool negative);
 #endif
-
+  RunTime();
   /// Return the specified moduli. Index starts from 0.
   U64 GetModulusPrime(size_t index) const;
   /// Return the maxmimum number of modulo.

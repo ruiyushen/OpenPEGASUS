@@ -30,6 +30,35 @@ PegasusRunTime::PegasusRunTime(Parms parms, size_t num_threads)
   printf(", #thread = %zd\n", num_threads_);
 }
 
+PegasusRunTime::PegasusRunTime(Parms parms, size_t num_threads, const std::string &runtime_file) 
+ : parms_(parms), num_threads_(std::max<size_t>(1, num_threads)){
+    size_t nlevels = parms.nlevels;
+  std::string JSON = level2Params(nlevels);
+    if (parms.enable_repacking) {
+      nlevels += (BetterSine::Depth());
+    }
+
+  runtime_ = gemini::RunTime::Create(JSON);
+    LoadFromFile(runtime_file, JSON);
+    if (!runtime_) {
+        throw std::runtime_error("Can't load RunTime");
+    }
+    runtime_->ShowContext(std::cout);
+
+    setUpRuntime();
+    setUpSecretKeys();
+    setUpPublicKeys();
+    setUpFunctors();
+
+    printf("n_{lwe} = %d, n_{lut} = %d, n_{ckks} = %d\n", parms_.lvl0_lattice_dim,
+           parms_.lvl1_lattice_dim, parms_.lvl2_lattice_dim);
+    printf("KS_base = 2^%d, sk.hamming = %d\n", KS_DC_BASE, SECRET_KEY_HW);
+    printf("|msg| < %f, scale = 2^%f, extra_scale = 2^%f, nslots = %d",
+           MsgRange(), std::log2(parms_.scale), std::log2(ExtraScaling()),
+           parms_.nslots);
+    printf(", #thread = %zd\n", num_threads_);
+}
+
 Status PegasusRunTime::SlotsToCoeffs(Ctx *ct, int nct) const {
   ThreadPool pool(num_threads_);
   const size_t work_load = (nct + num_threads_ - 1) / num_threads_;
@@ -61,6 +90,10 @@ Status PegasusRunTime::SlotsToCoeffs(Ctx &out) const {
   CHECK_STATUS(linearTransformer_->SlotsToCoeffs(out, &s2c));
   out = s2c;
   return Status::Ok();
+}
+
+void PegasusRunTime::load_cipher(Ctx &ct, std::ifstream &is) const {
+  ct.load(runtime_->SEALRunTime(),is);
 }
 
 Status PegasusRunTime::RotateLeft(Ctx &out, size_t offset) const {
@@ -342,6 +375,108 @@ Status PegasusRunTime::Repack(Ctx &out,
   CHECK_STATUS(sinFunctor_->Apply(out, parms_.scale));
   return Status::Ok();
 }
+
+bool PegasusRunTime::SaveSealContexts(std::ostream &os) const {
+
+    if (runtime_) {
+        bool has_runtime = true;
+        os.write(reinterpret_cast<const char*>(&has_runtime), sizeof(has_runtime));
+        if (!runtime_->Save(os)) {
+            return false;
+        }
+    } else {
+        bool has_runtime = false;
+        os.write(reinterpret_cast<const char*>(&has_runtime), sizeof(has_runtime));
+    }
+
+    return true;
+}
+
+bool PegasusRunTime::LoadSealContexts(std::istream &is, std::string const& json) {
+    bool has_runtime;
+    
+    is.read(reinterpret_cast<char*>(&has_runtime), sizeof(has_runtime));
+    if (!is.good()) return false;
+
+    if (has_runtime) {
+        if (!runtime_->Load(is, json)) {
+            return false;
+        }
+      std::cout << "Load runtime success" << std::endl;
+    } else {
+        runtime_ = nullptr;
+    }
+
+    return true;
+}
+
+Status PegasusRunTime::Save(std::ostream &os) const {
+    int version = 1;
+    os.write(reinterpret_cast<const char*>(&version), sizeof(version));
+
+    os.write(reinterpret_cast<const char*>(&parms_), sizeof(parms_));
+    if (!os.good()) return Status::FileIOError("Error writing Parms");
+
+    os.write(reinterpret_cast<const char*>(&num_threads_), sizeof(num_threads_));
+    if (!os.good()) return Status::FileIOError("Error writing num_threads_");
+
+    if (!SaveSealContexts(os)) {
+        return Status::FileIOError("Error saving SEAL contexts and RunTime");
+    }
+
+    if (!os.good()) {
+        return Status::FileIOError("Error occurred during saving PegasusRunTime");
+    }
+
+    return Status::Ok();
+}
+
+Status PegasusRunTime::Load(std::istream &is, std::string const& json) {
+    if (!is.good()) {
+        return Status::FileIOError("Input stream not good for reading");
+    }
+    int version;
+    is.read(reinterpret_cast<char*>(&version), sizeof(version));
+    if (!is.good()) return Status::FileIOError("Error reading version");
+    if (version != 1) {
+        return Status::ArgumentError("Unsupported version");
+    }
+    is.read(reinterpret_cast<char*>(&parms_), sizeof(parms_));
+    if (!is.good()) return Status::FileIOError("Error reading Parms");
+
+    size_t &non_const_num_threads = const_cast<size_t&>(num_threads_);
+    is.read(reinterpret_cast<char*>(&non_const_num_threads), sizeof(non_const_num_threads));
+    if (!is.good()) return Status::FileIOError("Error reading num_threads_");
+    if (!LoadSealContexts(is, json)) {
+        return Status::FileIOError("Error loading SEAL contexts and RunTime");
+    }
+
+    if (!is.good()) {
+        return Status::FileIOError("Error occurred during loading PegasusRunTime");
+    }
+
+    return Status::Ok();
+}
+
+Status PegasusRunTime::SaveToFile(const std::string &filename) const {
+    std::ofstream ofs(filename, std::ios::binary);
+    if (!ofs.is_open()) {
+        return Status::FileIOError("Failed to open file for writing");
+    }
+
+    return Save(ofs);
+}
+
+Status PegasusRunTime::LoadFromFile(const std::string &filename, std::string const& json) {
+    std::ifstream ifs(filename, std::ios::binary);
+    if (!ifs.is_open()) {
+        return Status::FileIOError("Failed to open file for reading");
+    }
+    Status load_status = Load(ifs, json);
+    std::cout << "LoadFromFile status: " << load_status << std::endl;
+    return Status::Ok();
+}
+
 
 }  // namespace gemini
 

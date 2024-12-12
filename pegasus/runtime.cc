@@ -432,10 +432,10 @@ struct RunTime::Impl {
     std::shared_ptr<seal::SEALContext> context_{nullptr};
   };
 
-  const int log2PolyDegree_;
-  const size_t polyDegree_;
-  const size_t maxNSlots_;
-  const size_t maxNModuli_;
+  int log2PolyDegree_;
+  size_t polyDegree_;
+  size_t maxNSlots_;
+  size_t maxNModuli_;
 
   void initBase(seal::EncryptionParameters parms) {
     using namespace seal;
@@ -461,6 +461,8 @@ struct RunTime::Impl {
       primeInvMod64_.push_back(primeInv);
     }
   }
+
+  Impl() = default;
 
   explicit Impl(size_t log2PolyDegree, std::vector<int> const& moduliBits,
                 int nSpecialPrimes)
@@ -555,11 +557,8 @@ struct RunTime::Impl {
     parms.set_n_special_primes(nSpecialPrimes);
     parms.set_galois_generator(5);
 
-    if (std::any_of(seed.cbegin(), seed.cend(),
-                    [](uint64_t s) { return s != 0; })) {
       parms.set_random_generator(
           std::make_shared<seal::BlakePRNGFactory>(seed));
-    }
 
     initBase(parms);
 
@@ -1944,6 +1943,129 @@ struct RunTime::Impl {
   std::unique_ptr<seal::CKKSEncoder> s_encoder_{nullptr};
   std::unique_ptr<FastCKKSEncoder> f_encoder_{nullptr};
 
+    bool Save(std::ostream &os) const {
+        context_->key_context_data()->parms().save(os);
+        if (!os.good()) return false;
+
+        bool has_sk = sk_.has_value();
+        os.write(reinterpret_cast<const char*>(&has_sk), sizeof(has_sk));
+        if (!os.good()) return false;
+        if (has_sk) {
+            sk_->save(os);
+            if (!os.good()) return false;
+        }
+
+        return true;
+    }
+
+    bool Load(std::istream &is, std::string const& json) {
+      using namespace seal;
+      using namespace rapidjson;
+      Value v;
+      Document document;
+
+      if (!document.Parse(json.c_str(), json.length()).HasParseError()) {
+        int log2PolyDegree = -1;
+
+        if (document.HasMember(JSONField::Log2PolyDegree().c_str())) {
+          v = document[JSONField::Log2PolyDegree().c_str()];
+          if (v.IsInt()) {
+            log2PolyDegree = v.GetInt();
+          }
+        }
+
+        std::vector<int> moduliBits;
+        if (document.HasMember(JSONField::ModuliArray().c_str())) {
+          v = document[JSONField::ModuliArray().c_str()];
+          if (v.IsArray() && v.Size() >= 1) {
+            moduliBits.resize(v.Size());
+            for (size_t i = 0; i < v.Size(); ++i) {
+              moduliBits[i] = v[i].GetInt();
+            }
+          }
+        }
+
+        bool seeded = true;
+        std::array<uint64_t, 8> seed;
+        std::fill(seed.begin(), seed.end(), 0);
+        if (document.HasMember(JSONField::Seed().c_str())) {
+          v = document[JSONField::Seed().c_str()];
+          if (v.IsArray() && v.Size() == 8) {
+            for (size_t i = 0; i < v.Size(); ++i) {
+              seed[i] = v[i].GetInt();
+            }
+          }
+        } else {
+          seeded = false;
+        }
+
+        int nSpecialPrimes = 0;
+        if (document.HasMember(JSONField::NSpecialPrimes().c_str())) {
+          v = document[JSONField::NSpecialPrimes().c_str()];
+          if (v.IsInt()) {
+            nSpecialPrimes = v.GetInt();
+          }
+        }
+
+        bool decryptionOnly = false;
+        if (document.HasMember(JSONField::DecryptionOnly().c_str())) {
+          v = document[JSONField::DecryptionOnly().c_str()];
+          if (v.IsBool()) {
+            decryptionOnly = v.GetBool();
+          }
+        }
+
+        bool isCompresskKey = false;
+        if (document.HasMember(JSONField::CompressKey().c_str())) {
+          v = document[JSONField::CompressKey().c_str()];
+          if (v.IsBool()) {
+            isCompresskKey = v.GetBool();
+          }
+        }
+
+        if (log2PolyDegree <= 0 || nSpecialPrimes >= (int)moduliBits.size()) {
+          throw std::runtime_error(
+              "RunTime::Create: Missing required fields: log2PolyDegree, "
+              "moduliArray");
+        }
+      
+        seal::EncryptionParameters params(seal::scheme_type::CKKS);
+        params.load(is);
+        if (!is.good()) return false;
+        initBase(params);
+        if (!context_->parameters_set()) return false;
+        bool has_sk;
+        is.read(reinterpret_cast<char*>(&has_sk), sizeof(has_sk));
+        if (!is.good()) return false;
+        if (has_sk) {
+            seal::SecretKey sk;
+            sk.load(context_, is);
+            if (!is.good()) return false;
+            sk_ = sk;}
+      KeyGenerator keygen(context_, *sk_);
+
+      decryptor_.reset(new Decryptor(context_, *sk_));
+
+      if (!decryptionOnly) {
+        pk_ = nonstd::optional<PublicKey>(keygen.public_key());
+        if (nSpecialPrimes > 0) {
+          if (isCompresskKey) {
+            rlk_serial_ =
+                nonstd::optional<Serializable<RelinKeys>>(keygen.relin_keys());
+            rok_serial_ =
+                nonstd::optional<Serializable<GaloisKeys>>(keygen.galois_keys());
+          } else {
+            rlk_ = nonstd::optional<RelinKeys>(keygen.relin_keys_local());
+            rok_ = nonstd::optional<GaloisKeys>(keygen.galois_keys_local(
+                GaloisKeysForFasterRotation(128, context_)));
+          }
+        }
+        encryptor_.reset(new Encryptor(context_, *pk_));
+      }
+      }
+        return true;
+    }
+
 #if GEMINI_ENABLE_CONVENTIONAL_FORM
   Status ConventionalForm(Ptx const& pt, std::vector<F64>* out, bool neg,
                           size_t gap = 1) {
@@ -2120,6 +2242,8 @@ struct RunTime::Impl {
     return Status::Ok();
   }
 };
+RunTime::RunTime() : impl_(std::make_unique<Impl>()) {
+}
 
 RunTime::RunTime(int log2PolyDegree, std::vector<int> const& moduliBits,
                  int nSpecialPrimes, std::array<uint64_t, 8> const& seed,
@@ -2219,6 +2343,32 @@ std::shared_ptr<RunTime> RunTime::Create(std::string const& json) {
     throw std::runtime_error("RunTime::Create: Can not parse this JSON");
   }
 }
+
+bool RunTime::Save(std::ostream &os) const {
+    if (!impl_) return false;
+    return impl_->Save(os);
+}
+
+bool RunTime::Load(std::istream &is, std::string const& json) {
+    if (!impl_) {
+        impl_ = std::make_unique<Impl>();
+    }
+    return impl_->Load(is, json);
+}
+
+// std::shared_ptr<RunTime> RunTime::LoadFromFile(const std::string &filename) {
+//     std::ifstream ifs(filename, std::ios::binary);
+//     if (!ifs.is_open()) {
+//         return nullptr;
+//     }
+
+//     auto runtime = std::make_shared<RunTime>();
+//     if (!runtime->Load(ifs)) {
+//         return nullptr;
+//     }
+
+//     return runtime;
+// }
 
 void RunTime::ShowContext(std::ostream& ss) const {
   return impl_->ShowContext(ss);
